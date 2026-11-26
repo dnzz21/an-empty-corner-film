@@ -6,7 +6,17 @@ import cv2
 import numpy as np
 import imageio.v2 as imageio
 from PIL import Image, ImageOps, ImageDraw
-
+from effects import (
+    exponential_zoom,
+    camera_transform,
+    dissolve,
+    ParticleField,
+    QuantumField,
+    additive_overlay,
+    create_vignette,
+    apply_vignette,
+    fade_to_black
+)
 
 # --------------------------------------------------
 # PROJECT PATHS
@@ -187,7 +197,10 @@ def blend_images(first, second, amount):
 # RENDER INDIVIDUAL SCENE
 # --------------------------------------------------
 
-def render_scene(scene, width, height, fps, mode):
+def render_scene(
+    scene, width, height, fps, mode,
+    next_scene=None, scene_start=0
+):
 
     duration = scene["duration"]
     frame_count = round(duration * fps)
@@ -197,72 +210,291 @@ def render_scene(scene, width, height, fps, mode):
         for name in scene["images"]
     ]
 
-    zoom_start = scene.get("zoom_start", 1.0)
-    zoom_end = scene.get("zoom_end", 1.25)
+    effect = scene.get("effect", "slow_push")
+    transition = scene.get("transition", "cut")
 
-    focal_point = scene.get(
-        "focal_point",
-        [0.5, 0.5]
+    zoom_defaults = {
+        "slow_push": 1.15,
+        "subtle_push": 1.08,
+        "accelerating_zoom": 5.0,
+        "continuous_macro_zoom": 2.5,
+        "atomic_particle_field": 1.4,
+        "quantum_wave_field": 1.2,
+        "cosmic_reveal": 1.8,
+        "planetary_descent": 2.0,
+        "slow_descent": 1.2
+    }
+
+    zoom_start = scene.get("zoom_start", 1.0)
+
+    zoom_end = scene.get(
+        "zoom_end",
+        zoom_defaults.get(effect, 1.25)
     )
 
-    effect = scene.get("effect", "slow_push")
+    focal_point = scene.get(
+        "focal_point", [0.5, 0.5]
+    )
 
-    for index in range(frame_count):
+    particles = ParticleField(
+        count=600,
+        seed=42
+    )
 
-        t = index / max(frame_count - 1, 1)
+    quantum = QuantumField(width, height)
 
-        if effect == "accelerating_zoom":
-            progress = t ** 2
+    vignette = create_vignette(
+        width, height, strength=0.12
+    )
+
+    def make_frame(
+        active_scene, active_images, t, global_time
+    ):
+
+        active_effect = active_scene.get(
+            "effect", "slow_push"
+        )
+
+        start = active_scene.get("zoom_start", 1.0)
+
+        end = active_scene.get(
+            "zoom_end",
+            zoom_defaults.get(active_effect, 1.25)
+        )
+
+        focus = active_scene.get(
+            "focal_point", [0.5, 0.5]
+        )
+
+        # Camera motion
+        if active_effect in (
+            "accelerating_zoom",
+            "continuous_macro_zoom",
+            "planetary_descent"
+        ):
+
+            progress = t
+
         else:
+
             progress = smoothstep(t)
 
-        zoom = zoom_start + (
-            zoom_end - zoom_start
-        ) * progress
+        # Multiple images within a scene
+        if len(active_images) > 1:
 
-        if len(images) == 1:
-
-            frame = images[0]
-
-        else:
-
-            position = t * (len(images) - 1)
+            position = t * (len(active_images) - 1)
 
             first_index = int(position)
 
             second_index = min(
                 first_index + 1,
-                len(images) - 1
+                len(active_images) - 1
             )
 
-            blend = smoothstep(
-                position - first_index
+            local_t = position - first_index
+
+            outgoing = camera_transform(
+                active_images[first_index],
+                exponential_zoom(start, end, local_t),
+                focus
             )
 
-            frame = blend_images(
-                images[first_index],
-                images[second_index],
-                blend
+            incoming = camera_transform(
+                active_images[second_index],
+                start,
+                focus
             )
 
-        frame = camera_zoom(
-            frame,
-            zoom,
-            focal_point
+            frame = dissolve(
+                outgoing,
+                incoming,
+                np.clip((local_t - 0.6) / 0.4, 0, 1)
+            )
+
+        else:
+
+            zoom = exponential_zoom(
+                start, end, progress
+            )
+
+            frame = camera_transform(
+                active_images[0],
+                zoom,
+                focus
+            )
+
+        # Atomic environment
+        if active_effect == "atomic_particle_field":
+
+            field = particles.render(
+                width,
+                height,
+                global_time,
+                speed=0.04
+            )
+
+            frame = cv2.addWeighted(
+                frame, 0.65,
+                field, 0.8,
+                0
+            )
+
+        # Quantum environment
+        elif active_effect == "quantum_wave_field":
+
+            waves = quantum.render(global_time)
+
+            field = particles.render(
+                width,
+                height,
+                global_time,
+                speed=0.04
+            )
+
+            frame = cv2.addWeighted(
+                frame, 0.3,
+                waves, 0.9,
+                0
+            )
+
+            frame = additive_overlay(
+                frame,
+                field,
+                strength=0.35
+            )
+
+        # Quantum-to-cosmic reveal
+        elif active_effect == "cosmic_reveal":
+
+            field = particles.render(
+                width,
+                height,
+                global_time,
+                speed=0.04
+            )
+
+            waves = quantum.render(global_time)
+
+            frame = dissolve(
+                waves,
+                frame,
+                smoothstep(t)
+            )
+
+            frame = additive_overlay(
+                frame,
+                field,
+                strength=0.55
+            )
+
+        # Planetary journey
+        elif active_effect == "planetary_descent":
+
+            field = particles.render(
+                width,
+                height,
+                global_time,
+                speed=0.04
+            )
+
+            frame = additive_overlay(
+                frame,
+                field,
+                strength=0.35 * (1 - t) ** 2
+            )
+
+        return apply_vignette(frame, vignette)
+
+    # Prepare the next scene for a continuous transition
+    next_images = None
+
+    if next_scene and transition in (
+        "zoom_blend",
+        "dissolve",
+        "particle_morph"
+    ):
+
+        next_images = [
+            load_image(
+                next_scene["images"][0],
+                width,
+                height,
+                mode
+            )
+        ]
+
+    # Render each individual frame
+    for index in range(frame_count):
+
+        t = index / max(frame_count - 1, 1)
+
+        global_time = scene_start + index / fps
+
+        frame = make_frame(
+            scene,
+            images,
+            t,
+            global_time
         )
 
+        # Blend into the next scene without
+        # increasing the total film duration
+        if next_images is not None:
+
+            transition_seconds = min(1.2, duration / 3)
+
+            transition_frames = max(
+                2,
+                round(transition_seconds * fps)
+            )
+
+            transition_start = (
+                frame_count - transition_frames
+            )
+
+            if index >= transition_start:
+
+                blend_progress = (
+                    (index - transition_start)
+                    / (transition_frames - 1)
+                )
+
+                incoming = make_frame(
+                    next_scene,
+                    next_images,
+                    0.0,
+                    global_time
+                )
+
+                frame = dissolve(
+                    frame,
+                    incoming,
+                    blend_progress
+                )
+
         # Final fade into darkness
-        if scene.get("transition") == "fade_to_black":
+        if transition == "fade_to_black" and t > 0.8:
 
-            if t > 0.8:
+            frame = fade_to_black(
+                frame,
+                (t - 0.8) / 0.2
+            )
 
-                fade = (1 - t) / 0.2
+        # Progress reporting
+        if (
+            index % fps == 0
+            or index == frame_count - 1
+        ):
 
-                frame = (
-                    frame.astype(np.float32) * fade
-                ).astype(np.uint8)
+            print(
+                f"{scene['id']}: "
+                f"{index + 1}/{frame_count} frames "
+                f"({100 * (index + 1) / frame_count:.1f}%)",
+                flush=True
+            )
 
         yield frame
+
 
 
 # --------------------------------------------------
@@ -314,7 +546,16 @@ def render_film(mode):
 
     try:
 
-        for scene in config["scenes"]:
+        scenes = config["scenes"]
+        scene_start = 0.0
+
+        for index, scene in enumerate(scenes):
+
+            next_scene = (
+                scenes[index + 1]
+                if index + 1 < len(scenes)
+                else None
+            )
 
             print(
                 f"Rendering {scene['id']}: "
@@ -327,14 +568,19 @@ def render_film(mode):
                 width,
                 height,
                 fps,
-                mode
+                mode,
+                next_scene=next_scene,
+                scene_start=scene_start
             ):
 
                 writer.append_data(frame)
                 total_frames += 1
 
+            scene_start += scene["duration"]
+
     finally:
         writer.close()
+
 
     print("=" * 50)
     print("RENDER COMPLETE")
