@@ -1,0 +1,85 @@
+name: Render An Empty Corner
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Select rendering mode"
+        required: true
+        default: "setup_check"
+        type: choice
+        options:
+          - setup_check
+          - preview
+          - final
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate project setup
+        run: |
+          python - <<'PY'
+          import json
+          import numpy
+          import PIL
+          import cv2
+          import scipy
+          import imageio
+          import imageio_ffmpeg
+
+          with open("config/scenes.json") as f:
+              config = json.load(f)
+
+          duration = sum(s["duration"] for s in config["scenes"])
+          assert duration == config["project"]["duration"]
+
+          print("All Python libraries imported successfully.")
+          print("Project:", config["project"]["title"])
+          print("Scenes:", len(config["scenes"]))
+          print("Duration:", duration, "seconds")
+          print("Total frames:", duration * config["project"]["fps"])
+          print("Project setup validated successfully.")
+          PY
+
+      - name: Create output directory
+        run: mkdir -p output
+
+      - name: Render film
+        if: inputs.mode != 'setup_check'
+        env:
+          RENDER_MODE: ${{ inputs.mode }}
+        run: |
+          python engine/render.py --mode "$RENDER_MODE"
+
+      - name: Upload rendered video
+        if: inputs.mode != 'setup_check'
+        uses: actions/upload-artifact@v4
+        with:
+          name: an-empty-corner-${{ inputs.mode }}
+          path: output/
+          retention-days: 7
+          if-no-files-found: error
