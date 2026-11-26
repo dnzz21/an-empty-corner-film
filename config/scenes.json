@@ -1,0 +1,110 @@
+{
+  "project": {
+    "title": "An Empty Corner",
+    "version": "1.0",
+    "duration": 60,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "output": "an_empty_corner.mp4"
+  },
+  "audio": {
+    "enabled": true,
+    "style": "dark_ambient",
+    "mood": "mystery_to_cosmic_wonder",
+    "sample_rate": 44100,
+    "fade_in": 2,
+    "fade_out": 3
+  },
+  "scenes": [
+    {
+      "id": "scene_01",
+      "name": "The Ordinary World",
+      "duration": 6,
+      "images": ["01_working.jpg"],
+      "effect": "slow_push",
+      "zoom_start": 1.0,
+      "zoom_end": 1.15,
+      "transition": "cut"
+    },
+    {
+      "id": "scene_02",
+      "name": "The Exhausted Eyes",
+      "duration": 4,
+      "images": ["02_eyes.jpg"],
+      "effect": "subtle_push",
+      "zoom_start": 1.0,
+      "zoom_end": 1.08,
+      "transition": "cut"
+    },
+    {
+      "id": "scene_03",
+      "name": "The Insignificant Space",
+      "duration": 5,
+      "images": ["03_desk.jpg"],
+      "effect": "accelerating_zoom",
+      "zoom_start": 1.0,
+      "zoom_end": 5.0,
+      "focal_point": [0.5, 0.5],
+      "transition": "zoom_blend"
+    },
+    {
+      "id": "scene_04",
+      "name": "Beyond Human Perception",
+      "duration": 6,
+      "images": [
+        "04_wood_macro.jpg",
+        "05_wood_micro.jpg"
+      ],
+      "effect": "continuous_macro_zoom",
+      "transition": "zoom_blend"
+    },
+    {
+      "id": "scene_05",
+      "name": "The Emptiness Within Matter",
+      "duration": 7,
+      "images": ["06_atomic.jpg"],
+      "effect": "atomic_particle_field",
+      "transition": "dissolve"
+    },
+    {
+      "id": "scene_06",
+      "name": "The Fabric of Reality",
+      "duration": 7,
+      "images": ["07_quantum.jpg"],
+      "effect": "quantum_wave_field",
+      "transition": "particle_morph"
+    },
+    {
+      "id": "scene_07",
+      "name": "The Impossible Discovery",
+      "duration": 7,
+      "images": ["08_galaxy.jpg"],
+      "effect": "cosmic_reveal",
+      "transition": "zoom_blend"
+    },
+    {
+      "id": "scene_08",
+      "name": "The Universe Within",
+      "duration": 8,
+      "images": [
+        "09_solar_system.jpg",
+        "10_earth.jpg",
+        "11_garden_aerial.jpg"
+      ],
+      "effect": "planetary_descent",
+      "transition": "zoom_blend"
+    },
+    {
+      "id": "scene_09",
+      "name": "The Observer Within",
+      "duration": 10,
+      "images": [
+        "12_garden.jpg",
+        "13_final_eyes.jpg"
+      ],
+      "effect": "slow_descent",
+      "transition": "fade_to_black"
+    }
+  ]
+}
