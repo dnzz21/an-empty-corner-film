@@ -1,3 +1,4 @@
+
 name: Render An Empty Corner
 
 on:
@@ -18,68 +19,322 @@ permissions:
 
 jobs:
   render:
+    name: Cinematic Rendering Pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    env:
+      RENDER_MODE: ${{ inputs.mode }}
+      PYTHONUNBUFFERED: "1"
+
     steps:
+
+      # --------------------------------------------------
+      # 1. Download project repository
+      # --------------------------------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # 2. Configure Python environment
+      # --------------------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+
+      # --------------------------------------------------
+      # 3. Install FFmpeg
+      # --------------------------------------------------
 
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+          ffmpeg -version
 
-      - name: Install Python dependencies
+      # --------------------------------------------------
+      # 4. Install Python dependencies
+      # --------------------------------------------------
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Validate project setup
+      # --------------------------------------------------
+      # 5. Verify Python dependencies
+      # --------------------------------------------------
+
+      - name: Verify dependencies
         run: |
           python - <<'PY'
-          import json
           import numpy
-          import PIL
           import cv2
+          import PIL
           import scipy
           import imageio
           import imageio_ffmpeg
 
-          with open("config/scenes.json") as f:
-              config = json.load(f)
-
-          duration = sum(s["duration"] for s in config["scenes"])
-          assert duration == config["project"]["duration"]
-
-          print("All Python libraries imported successfully.")
-          print("Project:", config["project"]["title"])
-          print("Scenes:", len(config["scenes"]))
-          print("Duration:", duration, "seconds")
-          print("Total frames:", duration * config["project"]["fps"])
-          print("Project setup validated successfully.")
+          print("All Python dependencies imported successfully.")
+          print("NumPy:", numpy.__version__)
+          print("OpenCV:", cv2.__version__)
+          print("Pillow:", PIL.__version__)
+          print("SciPy:", scipy.__version__)
+          print("ImageIO:", imageio.__version__)
           PY
 
-      - name: Create output directory
+      # --------------------------------------------------
+      # 6. Validate Python syntax
+      # --------------------------------------------------
+
+      - name: Validate Python code
+        run: |
+          python -m py_compile engine/effects.py
+          python -m py_compile engine/render.py
+          echo "Python syntax validation successful."
+
+      # --------------------------------------------------
+      # 7. Validate configuration and image assets
+      # --------------------------------------------------
+
+      - name: Validate cinematic project
+        run: |
+          python engine/render.py --mode validate
+
+      # --------------------------------------------------
+      # 8. Test cinematic effects
+      # --------------------------------------------------
+
+      - name: Test cinematic effects engine
+        run: |
+          PYTHONPATH=engine python - <<'PY'
+          import numpy as np
+
+          from effects import (
+              cinematic_camera,
+              SpatialDistortion,
+              apply_transition,
+              fade_to_black,
+              black_screen
+          )
+
+          width = 320
+          height = 180
+
+          rng = np.random.default_rng(42)
+
+          first = rng.integers(
+              0, 256,
+              (height, width, 3),
+              dtype=np.uint8
+          )
+
+          second = rng.integers(
+              0, 256,
+              (height, width, 3),
+              dtype=np.uint8
+          )
+
+          distortion = SpatialDistortion(width, height)
+
+          def check(frame):
+              assert frame.shape == first.shape
+              assert frame.dtype == np.uint8
+
+          check(cinematic_camera(
+              first,
+              progress=0.5,
+              zoom_start=1.0,
+              zoom_end=3.0
+          ))
+
+          check(distortion.organic(
+              first,
+              time=1.0,
+              intensity=0.3
+          ))
+
+          check(distortion.reality_warp(
+              first,
+              time=1.0,
+              intensity=0.4
+          ))
+
+          transitions = [
+              "zoom_blend",
+              "macro_morph",
+              "spatial_morph",
+              "light_emergence",
+              "cosmic_morph",
+              "planetary_match",
+              "atmospheric_blend",
+              "targeted_match",
+              "dissolve",
+              "particle_morph"
+          ]
+
+          for transition in transitions:
+
+              for progress in [0.0, 0.5, 1.0]:
+
+                  result = apply_transition(
+                      first,
+                      second,
+                      transition,
+                      progress=progress,
+                      distortion=distortion,
+                      time=1.0
+                  )
+
+                  check(result)
+
+                  if progress == 0.0:
+                      assert np.array_equal(result, first)
+
+                  if progress == 1.0:
+                      assert np.array_equal(result, second)
+
+              print(f"PASS: {transition}")
+
+          assert np.all(fade_to_black(first, 1.0) == 0)
+          assert np.all(black_screen(width, height) == 0)
+
+          print("All cinematic effects tests passed.")
+          PY
+
+      # --------------------------------------------------
+      # 9. Create output directory
+      # --------------------------------------------------
+
+      - name: Prepare output directory
+        if: ${{ inputs.mode != 'setup_check' }}
         run: mkdir -p output
 
+      # --------------------------------------------------
+      # 10. Render cinematic film
+      # --------------------------------------------------
+
       - name: Render film
-        if: inputs.mode != 'setup_check'
-        env:
-          RENDER_MODE: ${{ inputs.mode }}
+        if: ${{ inputs.mode != 'setup_check' }}
         run: |
+          echo "Starting $RENDER_MODE rendering..."
           python engine/render.py --mode "$RENDER_MODE"
 
-      - name: Upload rendered video
-        if: inputs.mode != 'setup_check'
+      # --------------------------------------------------
+      # 11. Verify generated video
+      # --------------------------------------------------
+
+      - name: Verify rendered video
+        if: ${{ inputs.mode != 'setup_check' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          from pathlib import Path
+          from fractions import Fraction
+
+          mode = os.environ["RENDER_MODE"]
+
+          config = json.loads(
+              Path("config/scenes.json").read_text()
+          )
+
+          project = config["project"]
+
+          video = Path(
+              f"output/{mode}_{project['output']}"
+          )
+
+          if not video.is_file():
+              raise FileNotFoundError(video)
+
+          result = subprocess.check_output([
+              "ffprobe",
+              "-v", "error",
+              "-select_streams", "v:0",
+              "-show_streams",
+              "-show_format",
+              "-of", "json",
+              str(video)
+          ])
+
+          metadata = json.loads(result)
+          stream = metadata["streams"][0]
+
+          width = stream["width"]
+          height = stream["height"]
+
+          fps = float(
+              Fraction(stream["avg_frame_rate"])
+          )
+
+          duration = float(
+              metadata["format"]["duration"]
+          )
+
+          expected = {
+              "preview": (1280, 720, 24),
+              "final": (1920, 1080, 30)
+          }[mode]
+
+          expected_duration = project["duration"]
+          expected_frames = round(
+              expected_duration * expected[2]
+          )
+
+          assert (width, height) == expected[:2]
+          assert abs(fps - expected[2]) < 0.01
+          assert abs(duration - expected_duration) < 0.1
+
+          if stream.get("nb_frames", "").isdigit():
+              assert int(stream["nb_frames"]) == expected_frames
+
+          print("Video verification successful.")
+          print(f"Resolution: {width}x{height}")
+          print(f"Frame rate: {fps}")
+          print(f"Duration: {duration:.2f} seconds")
+          print(f"Expected frames: {expected_frames}")
+          print(f"File size: {video.stat().st_size / 1048576:.2f} MB")
+          PY
+
+      # --------------------------------------------------
+      # 12. Upload downloadable film
+      # --------------------------------------------------
+
+      - name: Upload rendered film
+        if: ${{ inputs.mode != 'setup_check' }}
         uses: actions/upload-artifact@v4
         with:
           name: an-empty-corner-${{ inputs.mode }}
-          path: output/
+          path: output/*.mp4
           retention-days: 7
           if-no-files-found: error
+
+      # --------------------------------------------------
+      # 13. Workflow summary
+      # --------------------------------------------------
+
+      - name: Generate workflow summary
+        if: ${{ success() }}
+        run: |
+          echo "## An Empty Corner" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: $RENDER_MODE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Configuration: Validated" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image assets: Validated" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Python code: Validated" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cinematic effects: Tested" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$RENDER_MODE" != "setup_check" ]; then
+            echo "- Video: Rendered and verified" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Artifact retention: 7 days" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Pipeline completed successfully.**" >> "$GITHUB_STEP_SUMMARY"
